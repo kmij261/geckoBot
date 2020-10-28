@@ -29,6 +29,8 @@
 #include "nrf24l01p.h"
 #include "dynamixel.h"
 #include "usart.h"
+#include "led.h"
+#include "gyro.h"
 
 /* 全局变量定义 */
 BotStatusUpdated_t g_tStatusUpdated;
@@ -36,15 +38,19 @@ BotStatusUpdated_t g_tStatusUpdated;
 
 /* 局部变量定义 */
 static uint8_t s_ucaSendBuf[ MAX_BUF_SIZE ];
-static uint8_t s_ucaRecvBuf[ MAX_BUF_SIZE ];
+RingBuf_t g_rbNrfRecved;
 
 static uint16_t s_sendPackLen;
 static ComReg_t s_tComReg;
 
 static bool s_packHeadRecved = false;
-static uint16_t s_bytesRecved;
-static uint16_t s_recvPackLen;
+static int s_bytesRecved;
+static int s_recvPackLen;
 static bool s_packTotalRecved = false;
+
+static const int ServoWaitCount = 14000;
+
+uint8_t g_errStat[8];
 
 /* ---------------------------------------------------------------------------*/		
 											   
@@ -56,9 +62,11 @@ static bool s_packTotalRecved = false;
 	*/
 uint8_t DC_Init(void)
 {
+	int ret;
 	s_tComReg.ucReg &= 0x00;
+	ret = RingBuf_Create( &g_rbNrfRecved, 256 );
 	
-	return 0;
+	return ret;
 }
 /* ---------------------------------------------------------------------------*/		
 											   
@@ -142,23 +150,26 @@ uint8_t DC_Send( void )
 int DC_Recv( uint8_t size )
 {
 	uint8_t buf[ 32 ];
-	uint8_t bytes;
-	uint8_t *p = s_ucaRecvBuf;
+	int i;
+	uint8_t *p = g_rbNrfRecved.pbuf + g_rbNrfRecved.head;
 	uint16_t crc;
 	int index;
 	int ret;
 	
 	
-	bytes = NRF_RxPacket( buf, size );
-	if( !bytes )
-		return ePackRecvError;
-	
-	for( index = 0; index < bytes; index++ )
-		printf("%02X ", buf[ index ] );
-	printf("\r\n");
-	
-	memcpy( &s_ucaRecvBuf[ s_bytesRecved ], buf, bytes );
-	s_bytesRecved += bytes;
+	NRF_RxPacket( buf, size );
+	NRF_Write_Reg( nrfCMD_FLUSH_RX, 0xFF);
+//	printf("bytes: %d, recved buf: ", size);
+//	for( i=0; i<size; i++)
+//		printf("%02X ", buf[ i ]);
+//	printf("\r\n");
+
+	ret = RingBuf_Append( &g_rbNrfRecved, buf, size );
+	RingBuf_Print( &g_rbNrfRecved );
+	if( ret )
+	{
+		return ret;
+	}
 
 	//没有收到包头
 	if( !s_packHeadRecved )
@@ -168,10 +179,22 @@ int DC_Recv( uint8_t size )
 			s_packHeadRecved = true ;
 			s_recvPackLen = 5 + ( p[ comBYTE_LEN_HIGH ] << 8 | p[ comBYTE_LEN_LOW ] );
 			ret = ePackHeadRecved;
+			if(s_recvPackLen > 100)
+			{
+				s_packHeadRecved = false;
+				s_bytesRecved = 0;
+				g_rbNrfRecved.head = 0;
+				g_rbNrfRecved.tail = 0;
+				ret = ePackRecvError;
+			}
+				
+			
 		}
 		else
 		{
 			s_bytesRecved = 0;
+			g_rbNrfRecved.head = 0;
+			g_rbNrfRecved.tail = 0;
 			ret = ePackRecvError;
 		}
 	}	
@@ -179,6 +202,7 @@ int DC_Recv( uint8_t size )
 	//如果已经收到包头
 	if( s_packHeadRecved )
 	{
+		s_bytesRecved = RingBuf_UsedBytes( &g_rbNrfRecved );
 		//如果数据帧长度小于数据包剩余长度
 		if( s_bytesRecved >= s_recvPackLen )
 		{
@@ -199,20 +223,82 @@ int DC_Recv( uint8_t size )
 			index = DC_FindFirtPackHead( p + 3, s_bytesRecved - 3 );
 			if( index >= 0 )
 			{
-				memmove( p, p + index, s_bytesRecved - index );
-				s_bytesRecved -= index;
+				RingBuf_Remove( &g_rbNrfRecved, index );
 			}
 			else
-				s_bytesRecved = 0;	
+				RingBuf_Clear( &g_rbNrfRecved );
+			
 		}
 		else
 		{
+			LED2 = ~LED2;
 			ret = ePackTotalRecved;
 			DC_GetPackParam( p + 5, s_recvPackLen - 7 );
-			s_bytesRecved -= s_recvPackLen;
+			RingBuf_Remove( &g_rbNrfRecved, s_recvPackLen );
 		}	
+		
+		s_packHeadRecved = false;
+		s_packTotalRecved = false;
 	}	
 	return ret;	
+}
+/* ---------------------------------------------------------------------------*/		
+											   
+/****
+	* @brief	更新系统信息
+	* @param  	系统信息类型
+	* @retval 	0：更新成功，非0：失败
+	*/
+int DC_UpdateSendBuf(int systemUpdateSeq)
+{
+	uint32_t waitCount = 0;
+	int ret;
+	if( systemUpdateSeq < eMsgIMU )
+	{
+		
+		//舵机电流( 扭矩 )
+		if( systemUpdateSeq == eMsgServoCurrent )
+			DXL_GetRegState( dxlREG_Present_Current, 2 );
+		//舵机位置
+		else if( systemUpdateSeq == eMsgServoPos )
+			DXL_GetRegState( dxlREG_Present_Position, 4 );
+		//舵机速度
+		else if( systemUpdateSeq == eMsgServoVel )
+			DXL_GetRegState( dxlREG_Present_Velocity, 4 );
+		//舵机位置
+		else if( systemUpdateSeq == eMsgServoVolt )
+			DXL_GetRegState( dxlREG_Present_Voltage, 2 );
+		
+		//等待舵机返回消息
+		waitCount = 0;
+		while( xServoMsg.bDataReady == false )
+		{
+			if( waitCount++ >= ServoWaitCount )
+			{
+				return 1;
+			}
+		}
+			
+		ret = DXL_GetPresentParam( &xServoMsg );
+		if(  ret < 0 )		
+			return 2;
+		else
+			ret = DXL_SetComBuf( ( COMM_MSG_E ) systemUpdateSeq );
+	}
+		
+	else if ( systemUpdateSeq == eMsgIMU )
+	{
+		ret = GYRO_GetImuData();
+		if( ret )
+			return 3;
+	}
+	
+	else if( systemUpdateSeq == eMsgSystemInfo )
+	{
+		
+		DC_SetBuffer( g_errStat, 8, eMsgSystemInfo );
+	}
+	return 0;
 }
 /* ---------------------------------------------------------------------------*/		
 											   
@@ -234,7 +320,7 @@ uint8_t DC_GetPackParam( uint8_t *pbuf, uint16_t size )
 		if( msg == eMsgAdhesionCtrl )
 		{
 			param = pbuf[ 2 ];
-			printf("param: %02X\r\n", param );
+			printf("param: %d\r\n", param );
 			CTRL_SetAdhesionPos( param );
 		}
 	}
@@ -321,6 +407,21 @@ uint16_t CrcCheck(uint8_t* ucBuf, uint16_t usLen)
 /* ---------------------------------------------------------------------------*/
 
 /****
+	* @brief	打印数组
+	* @param  	pbuf：数组指针
+	* @param  	size：数组长度
+	* @retval 	无
+    */
+void DC_PrintBuf( uint8_t *pbuf, uint16_t size )
+{
+	int i = 0;
+	for(i=0; i<size; i++)
+		printf("%02X ", pbuf[i]);
+	printf("\r\n");
+}
+/* ---------------------------------------------------------------------------*/
+
+/****
 	* @brief	环形缓冲区创建函数
 	* @param  	prbuf：环形缓冲区结构体指针
 	* @retval 	0:创建成功；非0：创建失败
@@ -355,7 +456,6 @@ int RingBuf_Create( RingBuf_t *prbuf, int size )
 int RingBuf_Append( RingBuf_t *prbuf, uint8_t *pbSrc, uint16_t len )
 {
 	uint8_t *p = prbuf->pbuf;
-	uint16_t dataLeftLen;
 	uint16_t ringBufAvailableLen;
 	int head, tail, size;
 	
@@ -370,31 +470,13 @@ int RingBuf_Append( RingBuf_t *prbuf, uint8_t *pbSrc, uint16_t len )
 	tail = prbuf->tail;
 	size = prbuf->size;
 	
-	//尾指针在头指针后
-	if( tail > head )
+	if( tail > head && ( size - tail ) < len )
 	{
-		//后部剩余空间不足以储存全部数据
-		if( ( size - tail ) < len )
-		{
-			//如果尾指针指向数组末尾，则空余空间集中在开头
-			if( tail ==  size )
-				memcpy( p, pbSrc, len );
-			//否则，剩余空间在开头和结尾
-			else
-			{
-				memcpy( p + tail, pbSrc, ( size - tail ) );
-				memcpy( p, pbSrc + ( size - tail ), len - ( size - tail ) );
-			}
-		}
-		//后部剩余空间足够存储
-		else
-			memcpy( p, pbSrc, len );
+		memcpy( p + tail, pbSrc, ( size - tail ) );
+		memcpy( p, pbSrc + ( size - tail ), len - ( size - tail ) );
 	}
-	//尾指针在头指针前
 	else
-	{
-		memcpy( p + head, pbSrc, len );
-	}
+		memcpy( p + tail, pbSrc, len );
 	
 	prbuf->tail = ( tail + len ) % size;
 	
@@ -453,8 +535,62 @@ int RingBuf_AvailableBytes( RingBuf_t *prbuf )
 	
 	return prbuf->size - bytes;
 }
+/* ---------------------------------------------------------------------------*/
 
+/****
+	* @brief	打印环形数组内的数据
+	* @param  	prbuf：环形缓冲区结构体指针
+	* @retval 	无
+    */
+void RingBuf_Print( RingBuf_t *prbuf )
+{
+	int head, tail, i, size;
+	if(prbuf->pbuf == NULL)
+		return;
+	if( !RingBuf_UsedBytes(prbuf))
+		return;
+	
+	
+	head = prbuf->head;
+	tail = prbuf->tail;
+	
+	if(head < tail)
+	{
+		for(i=head; i<tail; i++)
+			printf("%02X ", prbuf->pbuf[i]);
+		printf("\r\n");
+	}
+	
+	else
+	{
+		size = prbuf->size;
+		for(i=head; i<size; i++)
+			printf("%02X ", prbuf->pbuf[i]);
+		for(i=0; i<tail; i++)
+			printf("%02X ", prbuf->pbuf[i]);
+		printf("\r\n");
+	}
+}
+/* ---------------------------------------------------------------------------*/
+
+/****
+	* @brief	清空环形数组内的数据
+	* @param  	prbuf：环形缓冲区结构体指针
+	* @retval 	无
+    */	
 void RingBuf_Clear( RingBuf_t *prbuf )
+{
+	prbuf->head = 0;
+	prbuf->tail = 0;
+}
+/* ---------------------------------------------------------------------------*/
+
+/****
+	* @brief	销毁环形数组
+	* @param  	prbuf：环形缓冲区结构体指针
+	* @retval 	无
+    */	
+void RingBuf_Destroy( RingBuf_t *prbuf )
 {
 	if( prbuf->pbuf != NULL )
 		free( prbuf->pbuf );
@@ -463,3 +599,4 @@ void RingBuf_Clear( RingBuf_t *prbuf )
 	prbuf->tail = 0;
 	prbuf->size = 0;
 }
+

@@ -37,7 +37,7 @@ void beep( uint16_t beepHz, uint16_t times, uint16_t interval_ms )
 			delay_us( interval_us );
 		}
 		
-		delay_us( interval_ms * 1000 );
+//		delay_us( interval_ms * 1000 );
 	}
 		
 	

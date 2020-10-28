@@ -33,7 +33,6 @@
 #include "delay.h"
 #include "led.h"
 #include "usart.h"
-#include "dma.h"
 
 
 
@@ -42,7 +41,7 @@
 uint8_t g_ucaServoTxBuffer[HALF_BUF_SIZE];
 
 //舵机接收缓冲区
-uint8_t g_ucaServoRxBuffer[HALF_BUF_SIZE];
+uint8_t g_ucaServoRxBuffer[MAX_BUF_SIZE];
 
 //舵机状态数组
 double dServoStatusBuf[ dxlStatusCount ][ ctrlSERVO_NUM ];
@@ -123,6 +122,7 @@ int DXL_ServoInit(EDxlBaudrate eBaudrate, FunctionalState fTorqueState)
 	//初始化串口及dma
 	USART1_Init( ulDxlBaudrateBuf[ eBaudrate ] );
 	DMA_ServoTxInit( dmaServoTxPeriphAddr, ( uint32_t )g_ucaServoTxBuffer, MAX_BUF_SIZE );
+	DMA_ServoRxInit( dmaServoRxPeriphAddr, ( uint32_t )g_ucaServoRxBuffer, MAX_BUF_SIZE );
 
 	delay_ms( 200 );
 	ret = DXL_Ping();
@@ -217,14 +217,17 @@ void DXL_RegSyncWrite(uint16_t usRegAddr, uint16_t usRegSize,
 	
 	for(i=0; i< ucServoNum; i++) 
 	{
-		if( ucDxlIdBuf[ ucIdBuf[ i ] - 1 ] )
-		{
-			g_ucaServoTxBuffer[SYNC_OPT_START_ADDR + idCount*(usRegSize+1)] = ucIdBuf[i];
+		if( ucIdBuf[i] )
+		{			
+			if( ucDxlIdBuf[ ucIdBuf[ i ] - 1 ] )
+			{
+				g_ucaServoTxBuffer[SYNC_OPT_START_ADDR + idCount*(usRegSize+1)] = ucIdBuf[i];
 
-			for(j=0; j<usRegSize; j++)
-				g_ucaServoTxBuffer[SYNC_OPT_START_ADDR+idCount*(usRegSize+1)+1 + j] 
-												= nthByteOf(ulDataBuf[idCount], j);
-			idCount++;
+				for(j=0; j<usRegSize; j++)
+					g_ucaServoTxBuffer[SYNC_OPT_START_ADDR+idCount*(usRegSize+1)+1 + j] 
+													= nthByteOf(ulDataBuf[ucIdBuf[i]-1], j);
+				idCount++;
+			}
 		}
 		
 	}
@@ -252,7 +255,7 @@ void DXL_RegSyncWrite(uint16_t usRegAddr, uint16_t usRegSize,
 	g_ucaServoTxBuffer[usPacketSize - 2] = LOW_BYTE(usDxlCrcCheck);
 	g_ucaServoTxBuffer[usPacketSize - 1] = HIGH_BYTE(usDxlCrcCheck);
 	
-	
+//	DXL_PrintBuf(g_ucaServoTxBuffer, usPacketSize, eHex02);
 //////////////////////////////////////////////////////////////////////////////
 #ifdef IN_DEBUG_MODE
 	
@@ -368,7 +371,6 @@ void DXL_RegSyncRead(uint16_t usRegAddr, uint16_t usRegSize, uint8_t ucServoNum,
 	
 	uint16_t usDxlCrcCheck = 0U;
 	
-	while( usart2Busy );
 	
 	g_ucaServoTxBuffer[eBYTE_ID]		= ID_BROADCAST;
 	g_ucaServoTxBuffer[eBYTE_LEN_L]		= LOW_BYTE(usPacketLen);
@@ -603,7 +605,22 @@ static int DXL_FindFirstPackhead( uint8_t * pucBuf, uint8_t len )
 	//运行到此处即说明未找到包头
 	return -2;
 }
+/* ---------------------------------------------------------------------------*/
+
+/****
+	* @brief	设定全部舵机某寄存器的值
+	* @param  	ulBaudrate: 目标波特率
+	* @retval 	None
+	*/
+void DXL_SetAllRegValue( uint16_t usRegAddr, uint16_t usRegSize, uint32_t value )
+{
+	uint32_t buf[ ctrlSERVO_NUM ];
+	int i;
+	for( i=0; i<ctrlSERVO_NUM; i++ )
+		buf[i] = value;
 	
+	DXL_RegSyncWrite( usRegAddr, usRegSize, ctrlSERVO_NUM, buf, ucDxlIdBuf );
+}	
 /* ---------------------------------------------------------------------------*/
 
 /****
@@ -741,7 +758,7 @@ void DXL_GetAllLedState(void)
     */
 int DXL_Ping( void )
 {
-	int count;
+	int count, i;
 	g_ucaServoTxBuffer[ eBYTE_ID ]			= ID_BROADCAST;
 	g_ucaServoTxBuffer[ eBYTE_LEN_L ]		= LOW_BYTE( 0x03 );
 	g_ucaServoTxBuffer[ eBYTE_LEN_H ]		= HIGH_BYTE( 0x00 );
@@ -751,11 +768,17 @@ int DXL_Ping( void )
 	
 	xServoMsg.usRegAddr = dxlPing;
 	xServoMsg.usRegSize = 3;
-	xServoMsg.byteToRecv = dxlMIN_STATUS_PACK_LEN;
+	xServoMsg.byteToRecv = dxlMIN_STATUS_PACK_LEN * ctrlSERVO_NUM + 10;
 	DXL_SetPacketReadEnable(&xServoMsg, ENABLE);
+	
 	DMA_SendData( dmaServoTxStream, 10 );
 	
-	delay_ms( 2000 );
+	delay_ms( 500 );
+	DMA_Cmd( dmaServoRxStream, DISABLE );
+	for( i=0; i<200; i++ )
+		printf("%02X ", g_ucaServoRxBuffer[i] );
+	printf("\r\n");
+	
 
 	count = DXL_GetPresentParam( &xServoMsg );
 	s_ucOnlineServoCount = 0;
@@ -848,6 +871,7 @@ ServoMsg xCreateMsg(uint8_t* ucSrcBuf)
 	xMsg.bDataReady 	= false;
 	xMsg.fReadEnable 	= DISABLE;
 	xMsg.fWriteEnable 	= DISABLE;
+	xMsg.fRxIdelIrqEnable = DISABLE;
 	xMsg.pDataBuf 		= ucSrcBuf;
 	xMsg.ucByteRecved 	= 0;
 	xMsg.usRegAddr 		= 0;
@@ -867,6 +891,7 @@ void xClearMsg(ServoMsg* pMsg)
 	pMsg->bDataReady 	= false;
 	pMsg->fWriteEnable 	= DISABLE;
 	pMsg->fReadEnable 	= DISABLE;
+	pMsg->fRxIdelIrqEnable = DISABLE;
 	pMsg->ucByteRecved 	= 0;
 	pMsg->usRegAddr 	= 0;
 	pMsg->usRegSize 	= 0;
@@ -948,15 +973,16 @@ static void DXL_PrintStatusBuf(void)
 #ifdef IN_DEBUG_MODE
 void DXL_PrintBuf(uint8_t* ucBuf, uint8_t ucLen, bool bInChar)
 #else
-static void DXL_PrintBuf(uint8_t* ucBuf, uint8_t ucLen, EPrintFormat ePrintFormat)
+static void DXL_PrintBuf(uint8_t* ucBuf, uint16_t ucLen, EPrintFormat ePrintFormat)
 #endif
 {
+	uint8_t *pbuf = ucBuf;
 	while(ucLen--)	
 	{
 		if(ePrintFormat == eHex02) 
-			printf("%02X ", *(ucBuf++));
+			printf("%02X ", *(pbuf++));
 		else 
-			printf("%3d", *(ucBuf++));
+			printf("%3d", *(pbuf++));
 	}
 	printf("\r\n");
 }

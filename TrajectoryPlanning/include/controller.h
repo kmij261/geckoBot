@@ -13,6 +13,9 @@
 
 #include "motionTypes.h"
 
+
+
+
 /* 机器人运动控制类型定义 ----------------------------------------------------*/
 
 /* 机器人运动模式定义*/
@@ -29,7 +32,7 @@ typedef enum
 {
 	GeckoRobot,
 	HexapodRobot
-}Robot_t;
+}RobotType;
 
 /* 机器人运动控制宏定义 ------------------------------------------------*/
 #define GECKO_ROBOT
@@ -37,13 +40,28 @@ typedef enum
 #define HEXAPOD_ROBOT
 */
 
+#define pi	( (double) 3.1415926 )
+
+
 #ifdef  GECKO_ROBOT
+#define LF	1
+#define RF	2
+#define LR	3
+#define RR	4
 #define ctrlSERVO_NUM				( ( uint8_t ) 16 )
 #define ctrlJOINTS_PER_LEG			( ( uint8_t ) 4 )
 #define ctrlLEG_COUNT				( ( uint8_t ) 4 )
 #define ctrlJOINT1_UP_LIMIT			( ( double ) 95 )
 #define ctrlJOINT1_LOW_LIMIT		( ( double ) -95 )
+	
 #elif defined HEXAPOD_ROBOT
+#define LF	1
+#define RF	2
+ 
+#define LM	3
+#define RM	4
+#define LR	5
+#define RR	6
 #define ctrlSERVO_NUM				( ( uint8_t ) 18 )
 #define ctrlJOINTS_PER_LEG			( ( uint8_t ) 3 )
 #define ctrlLEG_COUNT				( ( uint8_t ) 6 )

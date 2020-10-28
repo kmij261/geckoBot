@@ -125,13 +125,22 @@ enum RingBufferError
 };
 
 
+extern RingBuf_t g_rbNrfRecved;
+extern uint8_t g_errStat[8];
+
+
+
+
+
 uint8_t DC_Init( void );
 uint8_t DC_SetBuffer(uint8_t *ucSrcBuf, uint8_t ucSize, COMM_MSG_E );
 uint8_t DC_Send( void );
 int DC_Recv( uint8_t size );
+int DC_UpdateSendBuf(int systemUpdateSeq);
 uint8_t DC_GetPackParam( uint8_t *pbuf, uint16_t size );
 int DC_FindFirtPackHead( uint8_t *pbuf, uint16_t size );
 uint16_t CrcCheck( uint8_t* ucBuf, uint16_t usLen );
+void DC_PrintBuf( uint8_t *pbuf, uint16_t size );
 
 /***********************************环形缓冲区函数*****************************/
 int RingBuf_Create( RingBuf_t* prbuf, int size );
@@ -139,7 +148,9 @@ int RingBuf_Append( RingBuf_t *prbuf, uint8_t *pbSrc, uint16_t len );
 int RingBuf_Remove( RingBuf_t *prbuf, uint16_t len );
 int RingBuf_UsedBytes( RingBuf_t *prbuf );
 int RingBuf_AvailableBytes( RingBuf_t *prbuf );
+void RingBuf_Print( RingBuf_t *prbuf );
 void RingBuf_Clear( RingBuf_t *prbuf );
+void RingBuf_Destroy( RingBuf_t *prbuf );
 
 
 

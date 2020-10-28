@@ -42,6 +42,12 @@ typedef struct BodyPose
 	double yaw;
 }BodyPose_t;
 
+typedef struct Robot
+{
+	Point3d *pTipPos;
+	LegAngle_t *pLegAngle;
+	BodyPose_t bodyAngle;
+}Robot_t;
 
 /* 机器人运动控制类型宏定义 ----------------------------------------------------*/
 #define TipPos_t			Point3d

@@ -22,7 +22,6 @@ uint32_t uxServoPosBuf[ctrlSERVO_NUM];
 /* 机器人类型及尺寸参数定义, 如果未定义，则定义为壁虎机器人*/
 #if defined  GECKO_ROBOT
 #undef HEXAPOD_ROBOT
-Robot_t robotType = GeckoRobot;
 
 /* 关节0距离身体中心的距离 mm */
 static const double fJoint0_x = 38.75;
@@ -124,14 +123,20 @@ uint8_t CTRL_WriteTipPosToBuf( TipPos_t* xTipPosBuf )
 void CTRL_SetTipsPos( TipPos_t xTipPosBuf[ ctrlLEG_COUNT ] )
 {
 	int i;
+	TipPos_t tmpTipPosBuf[ ctrlLEG_COUNT ];
 	for( i = 0; i < ctrlLEG_COUNT; i++ )
 	{
-		xTipPosBuf[ i ].x += TipBasePosBuf[ i ][ 0 ];
-		xTipPosBuf[ i ].y += TipBasePosBuf[ i ][ 1 ];
-		xTipPosBuf[ i ].z += TipBasePosBuf[ i ][ 2 ];
+		tmpTipPosBuf[i].x = xTipPosBuf[i].x + TipBasePosBuf[i][0];
+		tmpTipPosBuf[i].y = xTipPosBuf[i].y + TipBasePosBuf[i][1];
+		tmpTipPosBuf[i].z = xTipPosBuf[i].z + TipBasePosBuf[i][2];
 	}
 	
-	CTRL_WriteTipPosToBuf( xTipPosBuf );
+	CTRL_WriteTipPosToBuf( tmpTipPosBuf );
+	
+//	for( i=0 ; i<ctrlSERVO_NUM; i++ )
+//		printf("%4u ", uxServoPosBuf[i] );
+//	printf("\r\n");
+	
 	DXL_SetAllGoalPos( uxServoPosBuf );
 
 }

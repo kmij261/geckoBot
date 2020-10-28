@@ -158,7 +158,7 @@ void EXTI0_IRQHandler( void )
 {
 	if( EXTI_GetITStatus( EXTI_Line0 ) != RESET )
 	{
-		LED2 = 0;
+		LED2 = !LED2;
 		nrfIrqTriggered = true;
 		EXTI_ClearITPendingBit( EXTI_Line0 );
 	}
@@ -175,16 +175,16 @@ void EXTI0_IRQHandler( void )
   */
 uint8_t NRF_Read_Reg( uint8_t RegAddr )
 {
-    uint8_t btmp;
-	
-    NRF_SET_CS_LOW( );			//片选
-	
-   SPI_ByteIO( nrfCMD_READ_REG | RegAddr );	//读命令 地址
-    btmp =SPI_ByteIO( 0xFF );				//读数据
-	
-    NRF_SET_CS_HIGH( );			//取消片选
-	
-    return btmp;
+	uint8_t btmp;
+
+	NRF_SET_CS_LOW( );			//片选
+
+	SPI_ByteIO( nrfCMD_READ_REG | RegAddr );	//读命令 地址
+	btmp = SPI_ByteIO( 0xFF );				//读数据
+
+	NRF_SET_CS_HIGH( );			//取消片选
+
+	return btmp;
 }
 /* ---------------------------------------------------------------------------*/	
 
@@ -849,7 +849,5 @@ int quickSend( uint8_t *pbuf, uint16_t size )
 		status, ( ( tick1 - tick2 + SysTick->LOAD ) % SysTick->LOAD ) / 21 );
 	
 	printf("\r\n\r\n\r\n");
-	
-	
-	
+
 }

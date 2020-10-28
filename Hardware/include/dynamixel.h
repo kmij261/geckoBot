@@ -201,10 +201,11 @@ typedef enum{
 typedef struct _stServoMsg_{
 	FunctionalState fWriteEnable;
 	FunctionalState fReadEnable;
+	FunctionalState fRxIdelIrqEnable;
 	volatile bool bDataReady;
 	uint8_t* pDataBuf;
 	volatile uint8_t ucByteRecved;
-	uint8_t byteToRecv;
+	uint16_t byteToRecv;
 	uint16_t usRegAddr;
 	uint16_t usRegSize;
 	bool err;
@@ -213,7 +214,7 @@ typedef struct _stServoMsg_{
 
 /* 全局变量定义 */
 extern uint8_t g_ucaServoTxBuffer[ HALF_BUF_SIZE ];
-extern uint8_t g_ucaServoRxBuffer[ HALF_BUF_SIZE ];
+extern uint8_t g_ucaServoRxBuffer[ MAX_BUF_SIZE ];
 extern double dServoStatusBuf[ dxlStatusCount ][ ctrlSERVO_NUM ];
 extern ServoMsg xServoMsg;
 extern uint8_t g_ucaDataRecved[ ctrlSERVO_NUM ];
@@ -239,6 +240,7 @@ static int DXL_FindFirstPackhead( uint8_t * pucBuf, uint8_t len );
 //void DXL_PushBuffer(void);
 
 /* EEPROM Registers Write Functions Definition -------------------------------*/
+void DXL_SetAllRegValue( uint16_t usRegAddr, uint16_t usRegSize, uint32_t value );
 void DXL_SetAllBaudrate(EDxlBaudrate eBaudrate);
 void DXL_SetAllReturnLv(EStatusReturnLv eReturnLevel);
 void DXL_SetAllReturnDelay( uint16_t usReturnDelayUs );
@@ -262,7 +264,7 @@ bool isMsgDataReady(ServoMsg xMsg);
 
 /*Debug Functions Definition ------------------------------------------------*/
 void DXL_PrintStatusBuf(void);
-void DXL_PrintBuf(uint8_t* ucBuf, uint8_t ucLen, EPrintFormat ePrintFormat);											   
+void DXL_PrintBuf(uint8_t* ucBuf, uint16_t ucLen, EPrintFormat ePrintFormat);											   
 
 /* ---------------------------------------------------------------------------*/
 #endif

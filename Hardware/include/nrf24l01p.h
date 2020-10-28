@@ -163,7 +163,7 @@ typedef enum PowerType
 #define nrfPWR_6DB   		(0x02<<1)
 #define nrfPWR_0DB   		(0x03<<1)
 
-#define nrfRX_DR         	6 
+#define nrfRX_DR         	6
 #define nrfTX_DS         	5 
 #define nrfMAX_RT        	4 
 //for bit3-bit1, 
@@ -180,7 +180,7 @@ typedef enum PowerType
 
 #define nrfDPL_P5        	5 
 #define nrfDPL_P4        	4 
-#define nrfnrfDPL_P3        	3 
+#define nrfnrfDPL_P3        3 
 #define nrfDPL_P2        	2 
 #define nrfDPL_P1        	1 
 #define nrfDPL_P0        	0 

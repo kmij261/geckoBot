@@ -196,7 +196,11 @@ enum ePackType{
 	
 };
 
-/* Private variables definations ---------------------------------------------*/
+/* global variables definations ---------------------------------------------*/
+extern GyroAcc_t 		g_tGyroAcc;
+extern GyroAngVel_t 	g_tGyroAngVel;
+extern GyroAngle_t 	g_tGyroAngle;
+
 
 /* 陀螺仪初始化 --------------------------------------------------------------*/	
 void GYRO_Init(void);

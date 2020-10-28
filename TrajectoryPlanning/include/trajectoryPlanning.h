@@ -5,7 +5,9 @@
 
 #include "sys.h"
 
-int TP_TripodGait( double time );
+int TP_Init( void );
+void TP_MoveToInitPos( void );
+int TP_TripodGait( void );
 
 
 
